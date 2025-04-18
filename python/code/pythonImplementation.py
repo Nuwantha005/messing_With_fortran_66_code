@@ -486,7 +486,7 @@ class TurbomachinerySolver:
     def run_solver(self):
         """Performs the main iterative calculation loop."""
 
-        initial_iter = self.ITER # Store initial iteration count setting
+        initial_iter = 0 # Store initial iteration count setting
 
         while self.ITER >= 0: # Loop continues as long as ITER is non-negative
             if initial_iter == 0: # Only print headers if it was initially set to 0 (run till convergence)
