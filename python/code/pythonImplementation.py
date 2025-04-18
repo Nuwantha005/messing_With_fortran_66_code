@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline, RegularGridInterpolator
 from scipy.integrate import cumulative_trapezoid
 import math
+import matplotlib.pyplot as plt # Import matplotlib
 
 class TurbomachinerySolver:
     """
@@ -949,8 +950,108 @@ class TurbomachinerySolver:
         for i in range(self.MX):
             print(*(f"{x:15.8E}" for x in self.R[i, :]))
         print("--- End BCD Dump ---")
+        
+    def plot_streamline_parameters(self, streamline_index):
+        """
+        Plots various calculated parameters along a specified streamline.
 
-# --- Main execution ---
+        Args:
+            streamline_index (int): The index (0-based) of the streamline to plot.
+        """
+        if not (0 <= streamline_index < self.KMX):
+            print(f"Error: Streamline index {streamline_index} out of range (0-{self.KMX-1}).")
+            return
+
+        k = streamline_index
+        sm_k = self.SM[:, k] / self.IN_TO_FT # Convert SM to inches for plotting consistency
+
+        params_to_plot = {
+            'Meridional Angle (deg)': self.AL[:, k] * self.RAD_TO_DEG,
+            'Relative Flow Angle (deg)': self.BETA[:, k] * self.RAD_TO_DEG,
+            'Meridional Curvature (1/ft)': self.CURV[:, k],
+            'Static Pressure (psi)': self.PRS[:, k],
+            'Radius (in)': self.R[:, k] / self.IN_TO_FT,
+            'Axial Coordinate Z (in)': self.Z[:, k] / self.IN_TO_FT,
+            'Tangential Thickness (in)': self.TT[:, k] / self.IN_TO_FT,
+            'Absolute Velocity (ft/s)': self.WA[:, k],
+            'Blade Surface Rel. Vel. (ft/s)': self.WTR[:, k]
+        }
+
+        num_plots = len(params_to_plot)
+        # Adjust layout based on number of plots (e.g., 3x3 grid)
+        ncols = 3
+        nrows = math.ceil(num_plots / ncols)
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, 3 * nrows))
+        axes = axes.flatten() # Flatten to easily iterate
+
+        fig.suptitle(f'Parameters along Streamline {k+1} (Index {k})', fontsize=8)
+
+        for i, (label, data) in enumerate(params_to_plot.items()):
+            ax = axes[i]
+            ax.plot(sm_k, data)
+            ax.set_title(label)
+            ax.set_xlabel('Meridional Distance SM (in)')
+            ax.grid(True)
+
+        # Hide any unused subplots
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
+        plt.show()
+
+    def plot_geometry(self):
+        """Plots the hub, shroud, and calculated streamline geometries."""
+        plt.figure(figsize=(10, 8))
+        plt.plot(self.ZH / self.IN_TO_FT, self.RH / self.IN_TO_FT, 'k-', linewidth=2, label='Hub')
+        plt.plot(self.ZS / self.IN_TO_FT, self.RS / self.IN_TO_FT, 'k-', linewidth=2, label='Shroud')
+
+        # Plot every NPRT streamline, or fewer if too many
+        step = max(1, self.NPRT, self.KMX // 10) # Ensure at least 1, plot NPRT or up to 10 lines
+        for k in range(0, self.KMX, step):
+             plt.plot(self.Z[:, k] / self.IN_TO_FT, self.R[:, k] / self.IN_TO_FT, '--', label=f'Streamline {k+1}' if k==0 or k==self.KMX-1 else None)
+
+        plt.title('Flowpath Geometry')
+        plt.xlabel('Axial Coordinate Z (in)')
+        plt.ylabel('Radial Coordinate R (in)')
+        plt.legend()
+        plt.grid(True)
+        plt.axis('equal') # Ensure correct aspect ratio
+        plt.show()
+
+    def plot_blade_data(self):
+        """Plots the input blade angle and thickness data."""
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Plot Blade Angle vs XT (assuming XT is Z-coordinate)
+        axes[0].plot(self.XT / self.IN_TO_FT, self.THTA) # Assuming THTA is angle in degrees from input
+        axes[0].set_title('Input Blade Angle (THTA vs XT)')
+        axes[0].set_xlabel('Axial Coordinate XT (in)')
+        axes[0].set_ylabel('Blade Angle (deg)') # Assuming input THTA is degrees
+        axes[0].grid(True)
+
+        # Plot Blade Thickness Grid (TN)
+        # Use contourf for filled contours
+        # Convert coordinates to inches for plot axes
+        xz_in = self.XZ / self.IN_TO_FT
+        xr_in = self.XR / self.IN_TO_FT
+        tn_in = self.TN / self.IN_TO_FT
+
+        # Create contour levels
+        levels = np.linspace(tn_in.min(), tn_in.max(), 15)
+        contour = axes[1].contourf(xz_in, xr_in, tn_in.T, levels=levels, cmap='viridis') # Transpose TN to match XZ, XR dimensions
+        fig.colorbar(contour, ax=axes[1], label='Thickness (in)')
+        axes[1].set_title('Input Blade Thickness Grid (TN)')
+        axes[1].set_xlabel('Axial Coordinate XZ (in)')
+        axes[1].set_ylabel('Radial Coordinate XR (in)')
+        axes[1].axis('equal') # Maintain aspect ratio
+
+        plt.tight_layout()
+        plt.show()
+
+
+
+
 if __name__ == "__main__":
     solver = TurbomachinerySolver()
     try:
@@ -960,14 +1061,39 @@ if __name__ == "__main__":
                 solver.read_input()
                 solver.run_solver()
                 solver.dump_bcd()
-                # Check if more input is available (e.g., for another run)
-                # This part depends on how input is provided.
-                # If reading from stdin, attempting another read might work,
-                # or expect a specific signal/empty line to stop.
-                # For simplicity, we break after one run here.
-                # To enable multiple runs, you might need to check for EOF
-                # or specific input termination.
-                print("\nRun complete. Add logic to check for more input data for next run.")
+
+                print("\nRun complete.")
+
+                # Plotting section
+                try:
+                    # Plot geometry and blade data
+                    solver.plot_geometry()
+                    solver.plot_blade_data()
+
+                    # Ask user for streamline to plot - display prompt once and wait for input
+                    prompt = f"Enter streamline index to plot (0 to {solver.KMX-1}, or 'q' to quit plotting): "
+                    # while True:
+                    #     try:
+                    #         idx_str = input(prompt)
+                    #     except EOFError:
+                    #         print()    # just newline on EOF
+                    #         break
+                    #     if idx_str.lower() == 'q':
+                    #         break
+                    #     try:
+                    #         idx = int(idx_str)
+                    #     except ValueError:
+                    #         print("Invalid input. Please enter an integer index or 'q'.")
+                    #         continue
+                    #     solver.plot_streamline_parameters(idx)
+                    solver.plot_streamline_parameters(10)
+
+                except Exception as e:
+                    print(f"An error occurred during plotting setup: {e}")
+
+
+                # Logic for handling multiple runs (currently breaks after one)
+                print("\nAdd logic to check for more input data for next run if needed.")
                 break # Exit after the first successful run
 
             except EOFError:
@@ -982,3 +1108,44 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\nExecution interrupted by user.")
+
+
+
+
+
+
+
+
+
+# # --- Main execution ---
+# if __name__ == "__main__":
+#     solver = TurbomachinerySolver()
+#     try:
+#         # Loop to handle multiple runs like the original GOTO 10
+#         while True:
+#             try:
+#                 solver.read_input()
+#                 solver.run_solver()
+#                 solver.dump_bcd()
+#                 # Check if more input is available (e.g., for another run)
+#                 # This part depends on how input is provided.
+#                 # If reading from stdin, attempting another read might work,
+#                 # or expect a specific signal/empty line to stop.
+#                 # For simplicity, we break after one run here.
+#                 # To enable multiple runs, you might need to check for EOF
+#                 # or specific input termination.
+#                 print("\nRun complete. Add logic to check for more input data for next run.")
+#                 break # Exit after the first successful run
+
+#             except EOFError:
+#                 print("\nEnd of input reached.")
+#                 break # Exit loop if no more input
+#             except Exception as e:
+#                 print(f"\nAn error occurred during processing: {e}")
+#                 import traceback
+#                 traceback.print_exc()
+#                 # Decide whether to stop or try reading next dataset if possible
+#                 break # Stop on error for now
+
+#     except KeyboardInterrupt:
+#         print("\nExecution interrupted by user.")
